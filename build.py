@@ -93,64 +93,46 @@ def download_poppler_for_windows():
         print(f"解压 Poppler 时出错：{e}")
         return None
 
-def build_app():
-    """打包应用程序"""
-    # 确保环境准备就绪
-    check_environment()
-    
-    # 检查源文件是否存在
-    src_file = os.path.join("src", "pdf_splitter_gui.py")
-    if not os.path.exists(src_file):
-        print(f"错误：找不到源文件 {src_file}")
-        sys.exit(1)
-    
-    # 动态导入 PyInstaller
-    import PyInstaller.__main__
-    
-    # 准备构建参数
-    build_args = [
-        src_file,  # 主程序文件
-        '--name=PDF回执单分割工具',  # 应用名称
-        '--onefile',  # 打包成单个文件
-        '--windowed',  # 不显示控制台窗口
-        '--clean',  # 清理临时文件
-        '--noconfirm',  # 不确认覆盖
-    ]
-    
-    # 添加图标
-    if sys.platform == 'darwin':  # macOS
-        if os.path.exists('icon.icns'):
-            build_args.append('--icon=icon.icns')
-    elif sys.platform == 'win32':  # Windows
-        if os.path.exists('icon.ico'):
-            build_args.append('--icon=icon.ico')
-        
-        # 下载并准备poppler
-        poppler_path = download_poppler_for_windows()
-        if poppler_path:
-            # 添加poppler相关文件
-            build_args.extend([
-                f'--add-binary={poppler_path}/*.dll;.',
-                f'--add-binary={poppler_path}/pdftoppm.exe;.',
-                f'--add-binary={poppler_path}/pdftocairo.exe;.',
-            ])
-        else:
-            print("警告：Poppler 配置失败，Windows 版本可能无法正常工作")
-    else:  # Linux
-        if os.path.exists('icon.png'):
-            build_args.append('--icon=icon.png')
-    
-    # 添加其他资源文件
-    if os.path.exists('README.md'):
-        build_args.append('--add-data=README.md:.')
-    
-    # 添加源代码目录到 Python 路径
-    build_args.extend([
-        '--paths=src',
-        f'--add-data=src/split_pdf_opencv.py{os.pathsep}.'
-    ])
-    
+def build_with_pyinstaller():
+    """使用 PyInstaller 打包"""
     try:
+        # 下载并配置 Poppler
+        print("配置 Poppler...")
+        poppler_path = download_poppler_for_windows()
+        if not poppler_path:
+            print("错误：Poppler 配置失败！")
+            sys.exit(1)
+
+        # 创建临时目录用于存放 Poppler 文件
+        temp_poppler_dir = "temp_poppler"
+        if os.path.exists(temp_poppler_dir):
+            shutil.rmtree(temp_poppler_dir)
+        os.makedirs(temp_poppler_dir)
+        
+        # 复制 Poppler 文件到临时目录
+        if os.path.exists(poppler_path):
+            for file in os.listdir(poppler_path):
+                if file.endswith('.dll') or file.endswith('.exe'):
+                    shutil.copy2(os.path.join(poppler_path, file), temp_poppler_dir)
+        
+        # 设置打包参数
+        build_args = [
+            'src/pdf_splitter_gui.py',  # 主程序文件
+            '--name=PDF回执单分割工具',  # 程序名称
+            '--noconsole',  # 不显示控制台
+            '--clean',  # 清理临时文件
+            '--add-data', f'{temp_poppler_dir};poppler',  # 添加 Poppler 文件
+            '--hidden-import=PIL._tkinter_finder',  # 添加隐藏导入
+            '--hidden-import=pypdf',
+            '--hidden-import=pdf2image',
+            '--hidden-import=cv2',
+            '--hidden-import=numpy',
+        ]
+        
+        # 如果存在图标文件，添加图标
+        if os.path.exists('app_icon.ico'):
+            build_args.extend(['--icon=app_icon.ico'])
+        
         # 运行PyInstaller
         print("开始打包...")
         PyInstaller.__main__.run(build_args)
@@ -159,14 +141,22 @@ def build_app():
         print("\n是否需要清理临时文件？")
         print("1. poppler-windows.zip 是手动下载的文件，建议保留")
         print("2. poppler-windows 目录是解压的临时文件，可以删除")
+        print("3. temp_poppler 是临时目录，将被删除")
         
-        # 只删除解压的临时目录
+        # 只删除临时目录
         if os.path.exists('poppler-windows'):
             try:
                 shutil.rmtree('poppler-windows')
                 print("已清理临时解压的 poppler-windows 目录")
             except Exception as e:
                 print(f"清理临时文件时出错：{e}")
+                
+        if os.path.exists(temp_poppler_dir):
+            try:
+                shutil.rmtree(temp_poppler_dir)
+                print("已清理临时的 temp_poppler 目录")
+            except Exception as e:
+                print(f"清理 {temp_poppler_dir} 目录时出错：{e}")
             
         print("\n打包完成！")
         if sys.platform == 'darwin':
@@ -181,4 +171,4 @@ def build_app():
         sys.exit(1)
 
 if __name__ == '__main__':
-    build_app() 
+    build_with_pyinstaller() 
