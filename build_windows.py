@@ -6,6 +6,35 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+def check_poppler_installed():
+    """检查系统是否已安装 Poppler"""
+    if sys.platform != 'win32':
+        return None  # 非 Windows 系统不需要检查
+        
+    # 检查常见的 Poppler 安装路径
+    common_paths = [
+        os.path.expandvars("%ProgramFiles%\\poppler"),
+        os.path.expandvars("%ProgramFiles(x86)%\\poppler"),
+        os.path.expandvars("%LocalAppData%\\poppler-windows\\Library\\bin"),
+        "C:\\poppler\\bin",
+        "C:\\Program Files\\poppler\\bin",
+        "C:\\Program Files (x86)\\poppler\\bin"
+    ]
+    
+    # 检查环境变量 PATH
+    path_dirs = os.environ.get("PATH", "").split(os.pathsep)
+    common_paths.extend([p for p in path_dirs if "poppler" in p.lower()])
+    
+    # 检查每个可能的路径
+    for path in common_paths:
+        if os.path.exists(path):
+            pdftoppm_path = os.path.join(path, "pdftoppm.exe")
+            if os.path.exists(pdftoppm_path):
+                print(f"找到已安装的 Poppler: {path}")
+                return path
+    
+    return None
+
 def check_environment():
     """检查并安装必要的依赖"""
     try:
@@ -31,6 +60,13 @@ def check_environment():
 
 def download_poppler():
     """下载并配置 Poppler"""
+    # 首先检查是否已安装
+    existing_poppler = check_poppler_installed()
+    if existing_poppler:
+        return existing_poppler
+        
+    print("未找到已安装的 Poppler，开始下载...")
+    
     poppler_url = "https://github.com/oschwartz10612/poppler-windows/releases/download/v24.08.0-0/Release-24.08.0-0.zip"
     zip_path = "poppler-windows.zip"
     extract_path = "poppler-windows"
@@ -141,13 +177,25 @@ def build_windows():
             shutil.rmtree(build_dir)
 
         # 清理临时文件
-        print("清理临时文件...")
-        if os.path.exists("poppler-windows.zip"):
-            os.remove("poppler-windows.zip")
+        print("\n是否需要清理临时文件？")
+        print("1. poppler-windows.zip 是手动下载的文件，建议保留")
+        print("2. poppler-windows 目录是解压的临时文件，可以删除")
+        print("3. temp_poppler 是临时目录，将被删除")
+        
+        # 只删除临时目录
         if os.path.exists("poppler-windows"):
-            shutil.rmtree("poppler-windows")
+            try:
+                shutil.rmtree("poppler-windows")
+                print("已清理临时解压的 poppler-windows 目录")
+            except Exception as e:
+                print(f"清理 poppler-windows 目录时出错：{e}")
+                
         if os.path.exists(temp_poppler_dir):
-            shutil.rmtree(temp_poppler_dir)
+            try:
+                shutil.rmtree(temp_poppler_dir)
+                print("已清理临时的 temp_poppler 目录")
+            except Exception as e:
+                print(f"清理 {temp_poppler_dir} 目录时出错：{e}")
 
         print(f"\n打包完成！可执行文件位于: {dist_dir / exe_name}")
         print("注意：首次运行可能需要等待几秒钟加载依赖。")

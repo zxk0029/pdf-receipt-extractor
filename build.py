@@ -6,6 +6,35 @@ import zipfile
 import subprocess
 from pathlib import Path
 
+def check_poppler_installed():
+    """检查系统是否已安装 Poppler"""
+    if sys.platform != 'win32':
+        return None  # 非 Windows 系统不需要检查
+        
+    # 检查常见的 Poppler 安装路径
+    common_paths = [
+        os.path.expandvars("%ProgramFiles%\\poppler"),
+        os.path.expandvars("%ProgramFiles(x86)%\\poppler"),
+        os.path.expandvars("%LocalAppData%\\poppler-windows\\Library\\bin"),
+        "C:\\poppler\\bin",
+        "C:\\Program Files\\poppler\\bin",
+        "C:\\Program Files (x86)\\poppler\\bin"
+    ]
+    
+    # 检查环境变量 PATH
+    path_dirs = os.environ.get("PATH", "").split(os.pathsep)
+    common_paths.extend([p for p in path_dirs if "poppler" in p.lower()])
+    
+    # 检查每个可能的路径
+    for path in common_paths:
+        if os.path.exists(path):
+            pdftoppm_path = os.path.join(path, "pdftoppm.exe")
+            if os.path.exists(pdftoppm_path):
+                print(f"找到已安装的 Poppler: {path}")
+                return path
+    
+    return None
+
 def check_environment():
     """检查并安装必要的依赖"""
     try:
@@ -31,16 +60,28 @@ def check_environment():
 
 def download_poppler_for_windows():
     """下载并解压Windows版本的poppler"""
-    poppler_url = "https://github.com/oschwartz10612/poppler-windows/releases/download/v24.08.0-0/Release-24.08.0-0.zip"
+    # 首先检查是否已安装
+    existing_poppler = check_poppler_installed()
+    if existing_poppler:
+        return existing_poppler
+        
+    # 检查是否已经手动下载了zip文件
     zip_path = "poppler-windows.zip"
     extract_path = "poppler-windows"
     
-    try:
-        # 下载poppler
-        if not os.path.exists(zip_path):
+    if not os.path.exists(zip_path):
+        print("未找到已下载的 poppler-windows.zip，开始下载...")
+        try:
+            poppler_url = "https://github.com/oschwartz10612/poppler-windows/releases/download/v24.08.0-0/Release-24.08.0-0.zip"
             print("下载poppler...")
             urllib.request.urlretrieve(poppler_url, zip_path)
-        
+        except Exception as e:
+            print(f"下载 Poppler 时出错：{e}")
+            return None
+    else:
+        print("检测到已下载的 poppler-windows.zip")
+    
+    try:
         # 解压poppler
         if not os.path.exists(extract_path):
             print("解压poppler...")
@@ -49,7 +90,7 @@ def download_poppler_for_windows():
         
         return os.path.join(extract_path, "Library", "bin")
     except Exception as e:
-        print(f"下载或解压 Poppler 时出错：{e}")
+        print(f"解压 Poppler 时出错：{e}")
         return None
 
 def build_app():
@@ -115,10 +156,17 @@ def build_app():
         PyInstaller.__main__.run(build_args)
         
         # 清理临时文件
-        if os.path.exists('poppler-windows.zip'):
-            os.remove('poppler-windows.zip')
+        print("\n是否需要清理临时文件？")
+        print("1. poppler-windows.zip 是手动下载的文件，建议保留")
+        print("2. poppler-windows 目录是解压的临时文件，可以删除")
+        
+        # 只删除解压的临时目录
         if os.path.exists('poppler-windows'):
-            shutil.rmtree('poppler-windows')
+            try:
+                shutil.rmtree('poppler-windows')
+                print("已清理临时解压的 poppler-windows 目录")
+            except Exception as e:
+                print(f"清理临时文件时出错：{e}")
             
         print("\n打包完成！")
         if sys.platform == 'darwin':
