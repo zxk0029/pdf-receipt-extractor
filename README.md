@@ -41,7 +41,7 @@ pdf-receipt-splitter/
 1. 克隆仓库：
    ```bash
    git clone https://github.com/zxk0029/pdf-receipt-extractor.git
-   cd pdf-receipt-splitter
+   cd pdf-receipt-extractor
    ```
 
 2. 创建虚拟环境：
