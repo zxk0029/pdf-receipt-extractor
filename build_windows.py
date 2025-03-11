@@ -76,6 +76,16 @@ def build_windows():
         print("警告: 未找到图标文件 app_icon.ico，将使用默认图标")
         icon_path = None
 
+    # 创建临时目录用于存放 Poppler 文件
+    temp_poppler_dir = "temp_poppler"
+    if os.path.exists(temp_poppler_dir):
+        shutil.rmtree(temp_poppler_dir)
+    os.makedirs(temp_poppler_dir)
+    
+    # 复制 Poppler 文件到临时目录
+    for file in os.listdir(poppler_path):
+        shutil.copy2(os.path.join(poppler_path, file), temp_poppler_dir)
+
     # Nuitka 编译命令
     cmd = [
         sys.executable, "-m", "nuitka",
@@ -97,20 +107,16 @@ def build_windows():
         "--jobs=4",
         "--remove-output",
         "--assume-yes-for-downloads",
-        "--prefer-source-code"
+        "--prefer-source-code",
+        f"--include-data-dir={temp_poppler_dir}=poppler"
     ]
-
-    # 添加 Poppler 相关文件
-    cmd.extend([
-        f"--include-data-dir={poppler_path}=poppler/bin",
-    ])
 
     # 添加图标
     if icon_path:
         cmd.append(f"--windows-icon-from-ico={icon_path}")
 
     # 添加主程序
-    cmd.append("pdf_splitter_gui.py")
+    cmd.append("src/pdf_splitter_gui.py")
 
     try:
         print("开始编译...")
@@ -140,6 +146,8 @@ def build_windows():
             os.remove("poppler-windows.zip")
         if os.path.exists("poppler-windows"):
             shutil.rmtree("poppler-windows")
+        if os.path.exists(temp_poppler_dir):
+            shutil.rmtree(temp_poppler_dir)
 
         print(f"\n打包完成！可执行文件位于: {dist_dir / exe_name}")
         print("注意：首次运行可能需要等待几秒钟加载依赖。")
