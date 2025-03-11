@@ -40,7 +40,7 @@ pdf-receipt-splitter/
 
 1. 克隆仓库：
    ```bash
-   git clone [https://github.com/yourusername/pdf-receipt-splitter.git](https://github.com/zxk0029/pdf-receipt-extractor.git)
+   git clone https://github.com/zxk0029/pdf-receipt-extractor.git
    cd pdf-receipt-splitter
    ```
 
