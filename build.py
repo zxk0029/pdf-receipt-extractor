@@ -57,12 +57,18 @@ def build_app():
     # 确保环境准备就绪
     check_environment()
     
+    # 检查源文件是否存在
+    src_file = os.path.join("src", "pdf_splitter_gui.py")
+    if not os.path.exists(src_file):
+        print(f"错误：找不到源文件 {src_file}")
+        sys.exit(1)
+    
     # 动态导入 PyInstaller
     import PyInstaller.__main__
     
     # 准备构建参数
     build_args = [
-        'pdf_splitter_gui.py',  # 主程序文件
+        src_file,  # 主程序文件
         '--name=PDF回执单分割工具',  # 应用名称
         '--onefile',  # 打包成单个文件
         '--windowed',  # 不显示控制台窗口
@@ -93,9 +99,15 @@ def build_app():
         if os.path.exists('icon.png'):
             build_args.append('--icon=icon.png')
     
-    # 添加README文件
+    # 添加其他资源文件
     if os.path.exists('README.md'):
         build_args.append('--add-data=README.md:.')
+    
+    # 添加源代码目录到 Python 路径
+    build_args.extend([
+        '--paths=src',
+        f'--add-data=src/split_pdf_opencv.py{os.pathsep}.'
+    ])
     
     try:
         # 运行PyInstaller
