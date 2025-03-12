@@ -4,9 +4,41 @@ import numpy as np
 from PIL import Image
 import os
 from pypdf import PdfWriter, PdfReader
-from io import BytesIO
 import sys
 
+
+def find_content_boundaries(gray_img):
+    """
+    分析图像内容来确定实际的内容边界
+    返回内容的上下左右边界位置
+    """
+    # 使用Otsu's二值化方法
+    _, binary = cv2.threshold(gray_img, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    
+    # 获取水平投影
+    h_proj = np.sum(binary, axis=1)
+    
+    # 设置阈值，用于判断是否为内容
+    h_threshold = np.max(h_proj) * 0.01
+    
+    # 查找内容边界
+    height = gray_img.shape[0]
+    top = 0
+    bottom = height - 1
+    
+    # 从上往下找到第一个有内容的行
+    for i in range(height):
+        if h_proj[i] > h_threshold:
+            top = max(0, i - 15)  # 增加额外空间
+            break
+            
+    # 从下往上找到最后一个有内容的行
+    for i in range(height - 1, -1, -1):
+        if h_proj[i] > h_threshold:
+            bottom = min(height - 1, i + 15)
+            break
+            
+    return top, bottom
 
 def process_pdf_with_opencv(input_pdf, output_path, progress_callback=None):
     """
@@ -20,38 +52,44 @@ def process_pdf_with_opencv(input_pdf, output_path, progress_callback=None):
     if progress_callback:
         progress_callback(0, f"正在处理PDF: {input_pdf}")
     
-    # 创建PDF写入器
+    # 打开原始PDF文件
+    pdf_reader = PdfReader(input_pdf)
     pdf_writer = PdfWriter()
     
-    # 获取总页数（使用低DPI加快速度）
-    if sys.platform == "darwin":
-        poppler_path = "/opt/homebrew/bin" if os.path.exists("/opt/homebrew/bin/pdftoppm") else "/usr/local/bin"
-        images = convert_from_path(input_pdf, dpi=1, poppler_path=poppler_path)
-    else:
-        images = convert_from_path(input_pdf, dpi=1)
-    total_pages = len(images)
+    # 获取总页数
+    total_pages = len(pdf_reader.pages)
     
     if progress_callback:
         progress_callback(1, f"总页数: {total_pages}")
 
     # 处理每一页
+    total_receipts = 0
     for page_num in range(total_pages):
         if progress_callback:
-            progress = int((page_num / total_pages) * 98) + 1  # 1-99的进度范围
+            progress = int((page_num / total_pages) * 98) + 1
             progress_callback(progress, f"正在处理第 {page_num + 1}/{total_pages} 页")
         
-        # 转换当前页为图像
+        # 获取原始页面
+        original_page = pdf_reader.pages[page_num]
+        
+        # 获取PDF页面原始尺寸
+        pdf_width = float(original_page.mediabox.width)
+        pdf_height = float(original_page.mediabox.height)
+        
+        # 使用较低DPI转换为图像用于检测
         if sys.platform == "darwin":
-            images = convert_from_path(input_pdf, dpi=300, first_page=page_num+1, 
-                                    last_page=page_num+1, poppler_path=poppler_path)
+            images = convert_from_path(input_pdf, dpi=100, first_page=page_num+1, 
+                                    last_page=page_num+1, poppler_path="/opt/homebrew/bin")
         else:
-            images = convert_from_path(input_pdf, dpi=300, first_page=page_num+1, 
+            images = convert_from_path(input_pdf, dpi=100, first_page=page_num+1, 
                                     last_page=page_num+1)
         img = images[0]
         
+        # 获取图像尺寸用于坐标转换
+        img_height = img.size[1]
+        
         # 转换为OpenCV格式
         cv_img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
-        height, width = cv_img.shape[:2]
         
         # 转换为灰度图
         gray = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
@@ -59,21 +97,21 @@ def process_pdf_with_opencv(input_pdf, output_path, progress_callback=None):
         # 使用自适应阈值处理
         binary = cv2.adaptiveThreshold(
             gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-            cv2.THRESH_BINARY_INV, 21, 5
+            cv2.THRESH_BINARY_INV, 25, 15
         )
         
         # 进行形态学操作
-        kernel = np.ones((7,7), np.uint8)
-        dilated = cv2.dilate(binary, kernel, iterations=3)
-        eroded = cv2.erode(dilated, kernel, iterations=2)
+        kernel = np.ones((5,5), np.uint8)
+        dilated = cv2.dilate(binary, kernel, iterations=2)
+        eroded = cv2.erode(dilated, kernel, iterations=1)
         
         # 查找轮廓
         contours, hierarchy = cv2.findContours(
             eroded, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
         
-        # 降低最小区域面积的要求
-        min_area = width * height * 0.1
+        # 调整最小区域面积的要求
+        min_area = img.size[0] * img.size[1] * 0.05
         
         # 过滤并排序轮廓（按垂直位置）
         valid_contours = []
@@ -81,38 +119,62 @@ def process_pdf_with_opencv(input_pdf, output_path, progress_callback=None):
             area = cv2.contourArea(cnt)
             if area > min_area:
                 x, y, w, h = cv2.boundingRect(cnt)
-                if 0.15 <= h / height <= 0.45:
-                    valid_contours.append(cnt)
+                if 0.05 <= h / img_height <= 0.6:
+                    valid_contours.append((y, y + h))  # 只保存垂直位置
         
         # 按y坐标排序
-        valid_contours = sorted(
-            valid_contours,
-            key=lambda c: cv2.boundingRect(c)[1]
-        )
+        valid_contours.sort()
+        
+        # 如果没有找到有效的分割区域，保留整页
+        if not valid_contours:
+            pdf_writer.add_page(original_page)
+            total_receipts += 1
+            continue
+        elif len(valid_contours) == 1:
+            # 检查唯一的区域是否覆盖了大部分页面
+            y_start, y_end = valid_contours[0]
+            coverage = (y_end - y_start) / img_height
+            if coverage > 0.7:  # 如果覆盖了70%以上的页面
+                pdf_writer.add_page(original_page)
+                total_receipts += 1
+                continue
+        
+        # 处理需要分割的页面
+        total_receipts += len(valid_contours)
         
         if progress_callback:
             progress_callback(progress, f"第 {page_num + 1} 页找到 {len(valid_contours)} 个回执单")
         
         # 处理每个区域
-        for idx, cnt in enumerate(valid_contours):
-            x, y, w, h = cv2.boundingRect(cnt)
+        for idx, (y_start, y_end) in enumerate(valid_contours):
+            # 提取当前区域的灰度图像
+            roi_gray = gray[y_start:y_end, :]
             
-            # 添加边距
-            margin = 30
-            x = max(0, x - margin)
-            y = max(0, y - margin)
-            w = min(width - x, w + 2 * margin)
-            h = min(height - y, h + 2 * margin)
+            # 分析内容边界（只分析垂直方向）
+            top, bottom = find_content_boundaries(roi_gray)
             
-            # 裁剪图像
-            cropped = img.crop((x, y, x + w, y + h))
+            # 计算最终的裁剪区域
+            final_y = y_start + top
+            final_h = bottom - top
             
-            # 将裁剪的图像转换为PDF并添加到writer
-            pdf_bytes = BytesIO()
-            cropped.save(pdf_bytes, format='PDF')
-            pdf_bytes.seek(0)
-            temp_reader = PdfReader(pdf_bytes)
-            pdf_writer.add_page(temp_reader.pages[0])
+            # 添加动态边距
+            margin_ratio = 0.08
+            margin_vertical = int(final_h * margin_ratio)
+            
+            final_y = max(0, final_y - margin_vertical)
+            final_h = min(img_height - final_y, final_h + 2 * margin_vertical)
+            
+            # 将图像坐标转换为PDF坐标（PDF坐标系从底部开始）
+            pdf_y = pdf_height - ((final_y + final_h) / img_height) * pdf_height
+            pdf_h = (final_h / img_height) * pdf_height
+            
+            # 创建新页面并设置裁剪框
+            new_page = pdf_reader.pages[page_num]
+            new_page.cropbox.lower_left = (0, pdf_y)  # 使用原始PDF的完整宽度
+            new_page.cropbox.upper_right = (pdf_width, pdf_y + pdf_h)
+            
+            # 添加裁剪后的页面
+            pdf_writer.add_page(new_page)
             
             if progress_callback:
                 progress_callback(progress, f"添加第 {page_num + 1} 页的第 {idx + 1} 个回执单")
