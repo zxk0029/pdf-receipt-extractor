@@ -137,30 +137,31 @@ def build_with_pyinstaller():
         if not os.path.exists(poppler_path):
             print(f"错误：Poppler 路径不存在: {poppler_path}")
             sys.exit(1)
+            
+        if sys.platform == 'win32':
+            # 创建临时目录用于存放 Poppler 文件
+            temp_poppler_dir = "temp_poppler"
+            if os.path.exists(temp_poppler_dir):
+                shutil.rmtree(temp_poppler_dir)
+            os.makedirs(temp_poppler_dir)
+            
+            # 复制 Poppler 文件到临时目录
+            print(f"复制 Poppler 文件到临时目录: {temp_poppler_dir}")
+            files_copied = 0
+            for file in os.listdir(poppler_path):
+                if file.endswith('.dll') or file.endswith('.exe'):
+                    src = os.path.join(poppler_path, file)
+                    dst = os.path.join(temp_poppler_dir, file)
+                    # print(f"复制文件: {file}")
+                    shutil.copy2(src, dst)
+                    files_copied += 1
+            print(f"已复制 {files_copied} 个文件")
 
-        # 创建临时目录用于存放 Poppler 文件
-        temp_poppler_dir = "temp_poppler"
-        if os.path.exists(temp_poppler_dir):
-            shutil.rmtree(temp_poppler_dir)
-        os.makedirs(temp_poppler_dir)
-        
-        # 复制 Poppler 文件到临时目录
-        print(f"复制 Poppler 文件到临时目录: {temp_poppler_dir}")
-        files_copied = 0
-        for file in os.listdir(poppler_path):
-            if file.endswith('.dll') or file.endswith('.exe'):
-                src = os.path.join(poppler_path, file)
-                dst = os.path.join(temp_poppler_dir, file)
-                # print(f"复制文件: {file}")
-                shutil.copy2(src, dst)
-                files_copied += 1
-        print(f"已复制 {files_copied} 个文件")
-
-        if files_copied == 0:
-            print("警告：没有找到任何 .dll 或 .exe 文件")
-            # print("目录内容:")
-            # for file in os.listdir(poppler_path):
-            #     print(f"- {file}")
+            if files_copied == 0:
+                print("警告：没有找到任何 .dll 或 .exe 文件")
+                # print("目录内容:")
+                # for file in os.listdir(poppler_path):
+                #     print(f"- {file}")
 
 
         # 设置打包参数
@@ -169,6 +170,7 @@ def build_with_pyinstaller():
             '--name=PDF回执单分割工具',  # 程序名称
             '--noconsole',  # 不显示控制台
             '--clean',  # 清理临时文件
+            '-y',  # 允许覆盖输出目录
             '--hidden-import=PIL._tkinter_finder',  # 添加隐藏导入
             '--hidden-import=pypdf',
             '--hidden-import=pdf2image',
