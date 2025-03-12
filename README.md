@@ -24,8 +24,8 @@ pdf-receipt-splitter/
 ├── docs/                   # 文档
 ├── tests/                  # 测试文件
 ├── examples/               # 示例文件
-├── build.py               # PyInstaller 打包脚本
-├── build_windows.py       # Nuitka 打包脚本 (Windows)
+├── build_pyinstaller.py   # PyInstaller 打包脚本 (跨平台，体积小)
+├── build_nuitka.py        # Nuitka 打包脚本 (性能优先，体积大)
 ├── requirements.txt       # 项目依赖
 └── README.md             # 项目说明
 ```
@@ -95,16 +95,16 @@ pdf-receipt-splitter/
 
 ## 打包说明
 
-### 使用 PyInstaller (体积小启动较慢)
+### 使用 PyInstaller (跨平台，体积小)
 
 ```bash
-python build.py
+python build_pyinstaller.py
 ```
 
-### 使用 Nuitka (体积大启动快)
+### 使用 Nuitka (性能优先，体积大)
 
 ```bash
-python build_windows.py
+python build_nuitka.py
 ```
 
 ## 贡献指南
