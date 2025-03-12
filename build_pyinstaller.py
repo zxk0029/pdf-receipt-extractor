@@ -1,12 +1,32 @@
 import os
 import sys
+import subprocess
+
+def check_environment():
+    """检查并安装必要的依赖"""
+    try:
+        # 检查是否存在 requirements.txt
+        if not os.path.exists('requirements.txt'):
+            print("错误：未找到 requirements.txt 文件")
+            sys.exit(1)
+            
+        # 安装依赖
+        print("安装项目依赖...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
+    except subprocess.CalledProcessError as e:
+        print(f"安装依赖时出错：{e}")
+        sys.exit(1)
+
+# 先检查环境
+check_environment()
+
+# 在确保依赖已安装后再导入其他包
 import shutil
 import urllib.request
 import zipfile
-import subprocess
-from pathlib import Path
 import PyInstaller.__main__
 
+# 检查是否安装了 Poppler
 def check_poppler_installed():
     """检查系统是否已安装 Poppler"""
     if sys.platform == 'darwin':
@@ -48,29 +68,6 @@ def check_poppler_installed():
         return None
     return None
 
-def check_environment():
-    """检查并安装必要的依赖"""
-    try:
-        # 检查是否存在 requirements.txt
-        if not os.path.exists('requirements.txt'):
-            print("错误：未找到 requirements.txt 文件")
-            sys.exit(1)
-            
-        # 安装依赖
-        print("安装项目依赖...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
-        
-        # 安装 PyInstaller（如果需要）
-        try:
-            import PyInstaller
-        except ImportError:
-            print("安装 PyInstaller...")
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller"])
-            
-    except subprocess.CalledProcessError as e:
-        print(f"安装依赖时出错：{e}")
-        sys.exit(1)
-
 def download_poppler_for_windows():
     """下载并解压Windows版本的poppler"""
     # 首先检查是否已安装
@@ -101,7 +98,8 @@ def download_poppler_for_windows():
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 zip_ref.extractall(extract_path)
         
-        bin_path = os.path.join(extract_path, "Library", "bin")
+        # 新的目录结构
+        bin_path = os.path.join(extract_path, "poppler-24.08.0", "Library", "bin")
         if not os.path.exists(bin_path):
             print(f"错误：在解压后的目录中未找到 bin 目录: {bin_path}")
             # 尝试查找实际的bin目录
@@ -110,7 +108,13 @@ def download_poppler_for_windows():
                     bin_path = root
                     print(f"找到包含 pdftoppm.exe 的目录: {bin_path}")
                     break
+            else:
+                print("错误：无法找到包含 pdftoppm.exe 的目录")
+                return None
+        
+        print(f"使用 Poppler bin 目录: {bin_path}")
         return bin_path
+        
     except Exception as e:
         print(f"解压 Poppler 时出错：{e}")
         return None
@@ -122,53 +126,43 @@ def build_with_pyinstaller():
         print("配置 Poppler...")
         poppler_path = None
         temp_poppler_dir = None
+
+        # Windows 需要下载和配置 Poppler
+        poppler_path = download_poppler_for_windows()
+        if not poppler_path:
+            print("错误：Poppler 配置失败！")
+            sys.exit(1)
+
+        print(f"使用 Poppler 路径: {poppler_path}")
+        if not os.path.exists(poppler_path):
+            print(f"错误：Poppler 路径不存在: {poppler_path}")
+            sys.exit(1)
+
+        # 创建临时目录用于存放 Poppler 文件
+        temp_poppler_dir = "temp_poppler"
+        if os.path.exists(temp_poppler_dir):
+            shutil.rmtree(temp_poppler_dir)
+        os.makedirs(temp_poppler_dir)
         
-        if sys.platform == 'win32':
-            # Windows 需要下载和配置 Poppler
-            poppler_path = download_poppler_for_windows()
-            if not poppler_path:
-                print("错误：Poppler 配置失败！")
-                sys.exit(1)
+        # 复制 Poppler 文件到临时目录
+        print(f"复制 Poppler 文件到临时目录: {temp_poppler_dir}")
+        files_copied = 0
+        for file in os.listdir(poppler_path):
+            if file.endswith('.dll') or file.endswith('.exe'):
+                src = os.path.join(poppler_path, file)
+                dst = os.path.join(temp_poppler_dir, file)
+                # print(f"复制文件: {file}")
+                shutil.copy2(src, dst)
+                files_copied += 1
+        print(f"已复制 {files_copied} 个文件")
 
-            print(f"使用 Poppler 路径: {poppler_path}")
-            if not os.path.exists(poppler_path):
-                print(f"错误：Poppler 路径不存在: {poppler_path}")
-                sys.exit(1)
+        if files_copied == 0:
+            print("警告：没有找到任何 .dll 或 .exe 文件")
+            # print("目录内容:")
+            # for file in os.listdir(poppler_path):
+            #     print(f"- {file}")
 
-            # 创建临时目录用于存放 Poppler 文件
-            temp_poppler_dir = "temp_poppler"
-            if os.path.exists(temp_poppler_dir):
-                shutil.rmtree(temp_poppler_dir)
-            os.makedirs(temp_poppler_dir)
-            
-            # 复制 Poppler 文件到临时目录
-            print(f"复制 Poppler 文件到临时目录: {temp_poppler_dir}")
-            files_copied = 0
-            for file in os.listdir(poppler_path):
-                if file.endswith('.dll') or file.endswith('.exe'):
-                    src = os.path.join(poppler_path, file)
-                    dst = os.path.join(temp_poppler_dir, file)
-                    print(f"复制文件: {file}")
-                    shutil.copy2(src, dst)
-                    files_copied += 1
-            print(f"已复制 {files_copied} 个文件")
 
-            if files_copied == 0:
-                print("警告：没有找到任何 .dll 或 .exe 文件")
-                print("目录内容:")
-                for file in os.listdir(poppler_path):
-                    print(f"- {file}")
-        else:
-            # macOS 和 Linux 使用系统安装的 Poppler
-            poppler_path = check_poppler_installed()
-            if not poppler_path:
-                print("错误：请先安装 Poppler")
-                if sys.platform == 'darwin':
-                    print("使用命令：brew install poppler")
-                else:
-                    print("使用命令：sudo apt-get install poppler-utils")
-                sys.exit(1)
-        
         # 设置打包参数
         build_args = [
             'src/pdf_splitter_gui.py',  # 主程序文件
