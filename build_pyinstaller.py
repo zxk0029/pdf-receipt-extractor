@@ -8,31 +8,43 @@ from pathlib import Path
 
 def check_poppler_installed():
     """检查系统是否已安装 Poppler"""
-    if sys.platform != 'win32':
-        return None  # 非 Windows 系统不需要检查
+    if sys.platform == 'darwin':
+        # macOS: 检查 brew 安装的 Poppler
+        if os.path.exists('/opt/homebrew/bin/pdftoppm'):
+            return '/opt/homebrew/bin'
+        elif os.path.exists('/usr/local/bin/pdftoppm'):
+            return '/usr/local/bin'
+        print("警告：未找到 Poppler，请使用 'brew install poppler' 安装")
+        sys.exit(1)
+    elif sys.platform == 'linux':
+        # Linux: 检查系统安装的 Poppler
+        if os.path.exists('/usr/bin/pdftoppm'):
+            return '/usr/bin'
+        print("警告：未找到 Poppler，请使用包管理器安装 poppler-utils")
+        sys.exit(1)
+    elif sys.platform == 'win32':
+        # Windows: 检查常见的 Poppler 安装路径
+        common_paths = [
+            os.path.expandvars("%ProgramFiles%\\poppler"),
+            os.path.expandvars("%ProgramFiles(x86)%\\poppler"),
+            os.path.expandvars("%LocalAppData%\\poppler-windows\\Library\\bin"),
+            "C:\\poppler\\bin",
+            "C:\\Program Files\\poppler\\bin",
+            "C:\\Program Files (x86)\\poppler\\bin"
+        ]
         
-    # 检查常见的 Poppler 安装路径
-    common_paths = [
-        os.path.expandvars("%ProgramFiles%\\poppler"),
-        os.path.expandvars("%ProgramFiles(x86)%\\poppler"),
-        os.path.expandvars("%LocalAppData%\\poppler-windows\\Library\\bin"),
-        "C:\\poppler\\bin",
-        "C:\\Program Files\\poppler\\bin",
-        "C:\\Program Files (x86)\\poppler\\bin"
-    ]
-    
-    # 检查环境变量 PATH
-    path_dirs = os.environ.get("PATH", "").split(os.pathsep)
-    common_paths.extend([p for p in path_dirs if "poppler" in p.lower()])
-    
-    # 检查每个可能的路径
-    for path in common_paths:
-        if os.path.exists(path):
-            pdftoppm_path = os.path.join(path, "pdftoppm.exe")
-            if os.path.exists(pdftoppm_path):
-                print(f"找到已安装的 Poppler: {path}")
-                return path
-    
+        # 检查环境变量 PATH
+        path_dirs = os.environ.get("PATH", "").split(os.pathsep)
+        common_paths.extend([p for p in path_dirs if "poppler" in p.lower()])
+        
+        # 检查每个可能的路径
+        for path in common_paths:
+            if os.path.exists(path):
+                pdftoppm_path = os.path.join(path, "pdftoppm.exe")
+                if os.path.exists(pdftoppm_path):
+                    print(f"找到已安装的 Poppler: {path}")
+                    return path
+        return None
     return None
 
 def check_environment():
@@ -96,24 +108,39 @@ def download_poppler_for_windows():
 def build_with_pyinstaller():
     """使用 PyInstaller 打包"""
     try:
-        # 下载并配置 Poppler
+        # 检查并配置 Poppler
         print("配置 Poppler...")
-        poppler_path = download_poppler_for_windows()
-        if not poppler_path:
-            print("错误：Poppler 配置失败！")
-            sys.exit(1)
-
-        # 创建临时目录用于存放 Poppler 文件
-        temp_poppler_dir = "temp_poppler"
-        if os.path.exists(temp_poppler_dir):
-            shutil.rmtree(temp_poppler_dir)
-        os.makedirs(temp_poppler_dir)
+        poppler_path = None
+        temp_poppler_dir = None
         
-        # 复制 Poppler 文件到临时目录
-        if os.path.exists(poppler_path):
-            for file in os.listdir(poppler_path):
-                if file.endswith('.dll') or file.endswith('.exe'):
-                    shutil.copy2(os.path.join(poppler_path, file), temp_poppler_dir)
+        if sys.platform == 'win32':
+            # Windows 需要下载和配置 Poppler
+            poppler_path = download_poppler_for_windows()
+            if not poppler_path:
+                print("错误：Poppler 配置失败！")
+                sys.exit(1)
+
+            # 创建临时目录用于存放 Poppler 文件
+            temp_poppler_dir = "temp_poppler"
+            if os.path.exists(temp_poppler_dir):
+                shutil.rmtree(temp_poppler_dir)
+            os.makedirs(temp_poppler_dir)
+            
+            # 复制 Poppler 文件到临时目录
+            if os.path.exists(poppler_path):
+                for file in os.listdir(poppler_path):
+                    if file.endswith('.dll') or file.endswith('.exe'):
+                        shutil.copy2(os.path.join(poppler_path, file), temp_poppler_dir)
+        else:
+            # macOS 和 Linux 使用系统安装的 Poppler
+            poppler_path = check_poppler_installed()
+            if not poppler_path:
+                print("错误：请先安装 Poppler")
+                if sys.platform == 'darwin':
+                    print("使用命令：brew install poppler")
+                else:
+                    print("使用命令：sudo apt-get install poppler-utils")
+                sys.exit(1)
         
         # 设置打包参数
         build_args = [
@@ -121,13 +148,16 @@ def build_with_pyinstaller():
             '--name=PDF回执单分割工具',  # 程序名称
             '--noconsole',  # 不显示控制台
             '--clean',  # 清理临时文件
-            '--add-data', f'{temp_poppler_dir};poppler',  # 添加 Poppler 文件
             '--hidden-import=PIL._tkinter_finder',  # 添加隐藏导入
             '--hidden-import=pypdf',
             '--hidden-import=pdf2image',
             '--hidden-import=cv2',
             '--hidden-import=numpy',
         ]
+        
+        # 在 Windows 下添加 Poppler 文件
+        if sys.platform == 'win32' and temp_poppler_dir:
+            build_args.extend(['--add-data', f'{temp_poppler_dir};poppler'])
         
         # 如果存在图标文件，添加图标
         if os.path.exists('app_icon.ico'):
@@ -137,26 +167,27 @@ def build_with_pyinstaller():
         print("开始打包...")
         PyInstaller.__main__.run(build_args)
         
-        # 清理临时文件
-        print("\n是否需要清理临时文件？")
-        print("1. poppler-windows.zip 是手动下载的文件，建议保留")
-        print("2. poppler-windows 目录是解压的临时文件，可以删除")
-        print("3. temp_poppler 是临时目录，将被删除")
-        
-        # 只删除临时目录
-        if os.path.exists('poppler-windows'):
-            try:
-                shutil.rmtree('poppler-windows')
-                print("已清理临时解压的 poppler-windows 目录")
-            except Exception as e:
-                print(f"清理临时文件时出错：{e}")
-                
-        if os.path.exists(temp_poppler_dir):
-            try:
-                shutil.rmtree(temp_poppler_dir)
-                print("已清理临时的 temp_poppler 目录")
-            except Exception as e:
-                print(f"清理 {temp_poppler_dir} 目录时出错：{e}")
+        # 清理临时文件（仅 Windows）
+        if sys.platform == 'win32':
+            print("\n是否需要清理临时文件？")
+            print("1. poppler-windows.zip 是手动下载的文件，建议保留")
+            print("2. poppler-windows 目录是解压的临时文件，可以删除")
+            print("3. temp_poppler 是临时目录，将被删除")
+            
+            # 只删除临时目录
+            if os.path.exists('poppler-windows'):
+                try:
+                    shutil.rmtree('poppler-windows')
+                    print("已清理临时解压的 poppler-windows 目录")
+                except Exception as e:
+                    print(f"清理临时文件时出错：{e}")
+                    
+            if os.path.exists(temp_poppler_dir):
+                try:
+                    shutil.rmtree(temp_poppler_dir)
+                    print("已清理临时的 temp_poppler 目录")
+                except Exception as e:
+                    print(f"清理 {temp_poppler_dir} 目录时出错：{e}")
             
         print("\n打包完成！")
         if sys.platform == 'darwin':
