@@ -5,6 +5,7 @@ import urllib.request
 import zipfile
 import subprocess
 from pathlib import Path
+import PyInstaller.__main__
 
 def check_poppler_installed():
     """检查系统是否已安装 Poppler"""
@@ -100,7 +101,16 @@ def download_poppler_for_windows():
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 zip_ref.extractall(extract_path)
         
-        return os.path.join(extract_path, "Library", "bin")
+        bin_path = os.path.join(extract_path, "Library", "bin")
+        if not os.path.exists(bin_path):
+            print(f"错误：在解压后的目录中未找到 bin 目录: {bin_path}")
+            # 尝试查找实际的bin目录
+            for root, dirs, files in os.walk(extract_path):
+                if "pdftoppm.exe" in files:
+                    bin_path = root
+                    print(f"找到包含 pdftoppm.exe 的目录: {bin_path}")
+                    break
+        return bin_path
     except Exception as e:
         print(f"解压 Poppler 时出错：{e}")
         return None
@@ -120,6 +130,11 @@ def build_with_pyinstaller():
                 print("错误：Poppler 配置失败！")
                 sys.exit(1)
 
+            print(f"使用 Poppler 路径: {poppler_path}")
+            if not os.path.exists(poppler_path):
+                print(f"错误：Poppler 路径不存在: {poppler_path}")
+                sys.exit(1)
+
             # 创建临时目录用于存放 Poppler 文件
             temp_poppler_dir = "temp_poppler"
             if os.path.exists(temp_poppler_dir):
@@ -127,10 +142,22 @@ def build_with_pyinstaller():
             os.makedirs(temp_poppler_dir)
             
             # 复制 Poppler 文件到临时目录
-            if os.path.exists(poppler_path):
+            print(f"复制 Poppler 文件到临时目录: {temp_poppler_dir}")
+            files_copied = 0
+            for file in os.listdir(poppler_path):
+                if file.endswith('.dll') or file.endswith('.exe'):
+                    src = os.path.join(poppler_path, file)
+                    dst = os.path.join(temp_poppler_dir, file)
+                    print(f"复制文件: {file}")
+                    shutil.copy2(src, dst)
+                    files_copied += 1
+            print(f"已复制 {files_copied} 个文件")
+
+            if files_copied == 0:
+                print("警告：没有找到任何 .dll 或 .exe 文件")
+                print("目录内容:")
                 for file in os.listdir(poppler_path):
-                    if file.endswith('.dll') or file.endswith('.exe'):
-                        shutil.copy2(os.path.join(poppler_path, file), temp_poppler_dir)
+                    print(f"- {file}")
         else:
             # macOS 和 Linux 使用系统安装的 Poppler
             poppler_path = check_poppler_installed()
