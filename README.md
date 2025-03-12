@@ -2,6 +2,22 @@
 
 一个用于自动检测和分割 PDF 文件中回执单的工具。该工具使用 OpenCV 进行智能检测，并通过 PyPDF 进行高质量分割，保持原始 PDF 的清晰度和特性。
 
+## 快速开始
+
+### 下载预编译版本
+
+访问 [Releases](https://github.com/zxk0029/pdf-receipt-extractor/releases) 页面下载最新版本：
+
+- Windows 用户：下载 `pdf-receipt-splitter-windows.zip`
+- macOS 用户：下载 `pdf-receipt-splitter-macos.zip`
+- Linux 用户：下载 `pdf-receipt-splitter-linux.zip`
+
+下载后解压即可使用，无需安装其他依赖。
+
+### 从源码安装
+
+如果您希望从源码安装，请参考下方的[安装说明](#安装说明)。
+
 ## 功能特点
 
 - 自动检测 PDF 中的回执单区域
@@ -101,11 +117,31 @@ pdf-receipt-splitter/
 python build_pyinstaller.py
 ```
 
+生成的文件位于 `dist` 目录下。
+
 ### 使用 Nuitka (性能优先，体积大)
 
 ```bash
 python build_nuitka.py
 ```
+
+生成的文件位于 `build` 目录下。
+
+### 发布新版本
+
+1. 使用 PyInstaller 和 Nuitka 分别构建程序
+2. 将生成的文件分别压缩：
+   ```bash
+   # Windows
+   zip -r pdf-receipt-splitter-windows.zip dist/pdf_splitter_gui/
+
+   # macOS
+   zip -r pdf-receipt-splitter-macos.zip dist/pdf_splitter_gui/
+
+   # Linux
+   zip -r pdf-receipt-splitter-linux.zip dist/pdf_splitter_gui/
+   ```
+3. 在 GitHub 创建新的 Release，上传压缩包
 
 ## 贡献指南
 
