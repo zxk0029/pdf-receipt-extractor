@@ -100,6 +100,7 @@ class MainWindow(QMainWindow):
         # 添加说明文字
         intro_label = QLabel(
             "这个工具可以自动检测和分割PDF文件中的回执单。\n"
+            "您可以选择多个PDF文件或选择包含PDF文件的文件夹。\n"
             "每个回执单将被提取并保存到一个新的PDF文件中。"
         )
         intro_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -109,9 +110,12 @@ class MainWindow(QMainWindow):
         file_layout = QHBoxLayout()
         self.file_label = QLabel("未选择文件")
         self.select_file_btn = QPushButton("选择PDF文件")
-        self.select_file_btn.clicked.connect(self.select_input_file)
+        self.select_folder_btn = QPushButton("选择文件夹")
+        self.select_file_btn.clicked.connect(self.select_input_files)
+        self.select_folder_btn.clicked.connect(self.select_input_folder)
         file_layout.addWidget(self.file_label)
         file_layout.addWidget(self.select_file_btn)
+        file_layout.addWidget(self.select_folder_btn)
         layout.addLayout(file_layout)
         
         # 输出目录选择部分
@@ -130,7 +134,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.progress_bar)
         
         # 状态标签
-        self.status_label = QLabel("请选择PDF文件和输出目录")
+        self.status_label = QLabel("请选择PDF文件或文件夹，以及输出目录")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.status_label)
         
@@ -141,21 +145,43 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.process_btn)
         
         # 初始化变量
-        self.input_pdf = None
+        self.input_pdfs = []  # 存储多个PDF文件路径
         self.output_dir = None
         self.is_processing = False
         
-    def select_input_file(self):
+    def select_input_files(self):
         if self.is_processing:
             return
             
-        file_name, _ = QFileDialog.getOpenFileName(
+        files, _ = QFileDialog.getOpenFileNames(
             self, "选择PDF文件", "", "PDF文件 (*.pdf)"
         )
-        if file_name:
-            self.input_pdf = file_name
-            self.file_label.setText(os.path.basename(file_name))
-            self.status_label.setText("已选择文件：" + os.path.basename(file_name))
+        if files:
+            self.input_pdfs = files
+            self.file_label.setText(f"已选择 {len(files)} 个PDF文件")
+            self.status_label.setText(f"已选择 {len(files)} 个PDF文件")
+            self.update_process_button()
+            
+    def select_input_folder(self):
+        if self.is_processing:
+            return
+            
+        folder = QFileDialog.getExistingDirectory(self, "选择包含PDF文件的文件夹")
+        if folder:
+            # 递归搜索文件夹中的所有PDF文件
+            self.input_pdfs = []
+            for root, _, files in os.walk(folder):
+                for file in files:
+                    if file.lower().endswith('.pdf'):
+                        self.input_pdfs.append(os.path.join(root, file))
+            
+            if self.input_pdfs:
+                self.file_label.setText(f"已选择文件夹中的 {len(self.input_pdfs)} 个PDF文件")
+                self.status_label.setText(f"已选择文件夹中的 {len(self.input_pdfs)} 个PDF文件")
+            else:
+                self.file_label.setText("所选文件夹中没有PDF文件")
+                self.status_label.setText("所选文件夹中没有PDF文件")
+            
             self.update_process_button()
             
     def select_output_dir(self):
@@ -170,7 +196,7 @@ class MainWindow(QMainWindow):
             self.update_process_button()
             
     def update_process_button(self):
-        can_process = bool(self.input_pdf and self.output_dir)
+        can_process = bool(self.input_pdfs and self.output_dir)
         self.process_btn.setEnabled(can_process and not self.is_processing)
         if can_process:
             self.status_label.setText('准备就绪，点击"开始处理"按钮开始处理')
@@ -178,52 +204,71 @@ class MainWindow(QMainWindow):
             self.progress_bar.setValue(0)  # 重置进度条
         
     def start_processing(self):
-        if not self.input_pdf or not self.output_dir or self.is_processing:
+        if not self.input_pdfs or not self.output_dir or self.is_processing:
             return
             
         # 设置处理中状态
         self.is_processing = True
         self.process_btn.setEnabled(False)
         self.select_file_btn.setEnabled(False)
+        self.select_folder_btn.setEnabled(False)
         self.select_output_btn.setEnabled(False)
         self.status_label.setStyleSheet("")
-        self.status_label.setText("正在处理中，请稍候...")
-        self.progress_bar.setValue(0)  # 重置进度条
         
-        output_path = os.path.join(
-            self.output_dir, 
-            "merged_receipts.pdf"
-        )
+        # 开始处理所有PDF文件
+        self.current_pdf_index = 0
+        self.process_next_pdf()
+        
+    def process_next_pdf(self):
+        if self.current_pdf_index >= len(self.input_pdfs):
+            # 所有文件处理完成
+            self.on_all_files_processed()
+            return
+            
+        input_pdf = self.input_pdfs[self.current_pdf_index]
+        base_name = os.path.splitext(os.path.basename(input_pdf))[0]
+        output_path = os.path.join(self.output_dir, f"{base_name}_processed.pdf")
+        
+        self.status_label.setText(f"正在处理第 {self.current_pdf_index + 1}/{len(self.input_pdfs)} 个文件: {base_name}")
         
         # 创建处理线程
-        self.thread = PDFProcessThread(self.input_pdf, output_path)
-        self.thread.progress.connect(self.update_progress)  # 连接进度信号
-        self.thread.finished.connect(self.on_process_finished)
+        self.thread = PDFProcessThread(input_pdf, output_path)
+        self.thread.progress.connect(self.update_progress)
+        self.thread.finished.connect(self.on_single_file_processed)
         self.thread.start()
         
     def update_progress(self, value, text):
         """更新进度条和状态文本"""
-        self.progress_bar.setValue(value)
-        self.status_label.setText(text)
+        # 计算总体进度
+        file_progress = value / len(self.input_pdfs)
+        total_progress = (self.current_pdf_index * 100 + file_progress) / len(self.input_pdfs)
+        self.progress_bar.setValue(int(total_progress))
+        self.status_label.setText(f"文件 {self.current_pdf_index + 1}/{len(self.input_pdfs)}: {text}")
         
-    def on_process_finished(self, success, message):
+    def on_single_file_processed(self, success, message):
+        if not success:
+            self.status_label.setText(f"处理文件失败: {message}")
+            self.status_label.setStyleSheet("color: red")
+            # 继续处理下一个文件
+        
+        self.current_pdf_index += 1
+        self.process_next_pdf()
+        
+    def on_all_files_processed(self):
         # 恢复按钮状态
         self.is_processing = False
         self.select_file_btn.setEnabled(True)
+        self.select_folder_btn.setEnabled(True)
         self.select_output_btn.setEnabled(True)
         
         # 更新状态显示
-        self.status_label.setText(message)
-        if success:
-            self.status_label.setStyleSheet("color: green")
-            self.progress_bar.setValue(100)  # 确保进度条显示完成
-            # 处理成功后，需要选择新文件才能继续处理
-            self.input_pdf = None
-            self.file_label.setText("请选择新的PDF文件")
-        else:
-            self.status_label.setStyleSheet("color: red")
-            # 处理失败后，允许重试
-            self.process_btn.setEnabled(True)
+        self.status_label.setText(f"所有 {len(self.input_pdfs)} 个文件处理完成！")
+        self.status_label.setStyleSheet("color: green")
+        self.progress_bar.setValue(100)
+        
+        # 重置文件选择
+        self.input_pdfs = []
+        self.file_label.setText("请选择新的PDF文件或文件夹")
 
 def main():
     # print(f"[{time.time()}] 开始设置环境...")
